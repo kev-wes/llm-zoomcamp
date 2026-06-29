@@ -8,8 +8,18 @@ dependencies = [
     "gitsource>=0.0.5",
     "jupyter>=1.1.1",
     "minsearch>=0.1.0",
+    "numpy>=2.4.6",
+    "onnxruntime>=1.27.0",
     "openai>=2.41.0",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
+    "tokenizers>=0.23.1",
     "toyaikit>=0.0.11",
+    "tqdm>=4.68.1",
+]
+
+[dependency-groups]
+dev = [
+    "huggingface-hub>=1.21.0",
+    "jupyter>=1.1.1",
 ]
