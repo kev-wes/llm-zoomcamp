@@ -1,0 +1,117 @@
+{
+  "uid": "docs-assistant",
+  "title": "n8n Docs Assistant - Monitoring",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Conversations per hour",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(created_at, '1h') AS time, count(*) AS conversations FROM conversations WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "User feedback",
+      "type": "piechart",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT CASE WHEN feedback = 1 THEN 'thumbs up' ELSE 'thumbs down' END AS reaction, count(*) AS count FROM feedback WHERE $__timeFilter(created_at) GROUP BY 1"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Answer relevance (LLM judge)",
+      "type": "piechart",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT coalesce(relevance, 'PENDING') AS relevance, count(*) AS count FROM conversations WHERE $__timeFilter(created_at) GROUP BY 1"
+        }
+      ],
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Answer latency (avg / p95)",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(created_at, '1h') AS time, avg(latency_ms) AS avg_ms, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms) AS p95_ms FROM conversations WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Token usage per day (estimated)",
+      "type": "timeseries",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT $__timeGroup(created_at, '1d') AS time, sum(prompt_tokens) AS prompt_tokens, sum(completion_tokens) AS completion_tokens FROM conversations WHERE $__timeFilter(created_at) GROUP BY 1 ORDER BY 1"
+        }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" }, "fillOpacity": 60 } }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Estimated cost (USD, selected range)",
+      "type": "stat",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT coalesce(sum(cost_usd), 0)::float8 AS total_cost FROM conversations WHERE $__timeFilter(created_at)"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "title": "Recent conversations",
+      "type": "table",
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "docs-assistant-pg" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT created_at, left(question, 100) AS question, left(answer, 160) AS answer, relevance, latency_ms FROM conversations ORDER BY created_at DESC LIMIT 25"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    }
+  ]
+}
