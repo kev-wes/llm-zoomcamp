@@ -1,0 +1,191 @@
+{
+  "id": "IngestDocs000001",
+  "name": "1 - Ingest n8n Docs",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Every Week",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, -100],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [1],
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Ingest Hook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 100],
+      "webhookId": "0b6f8f5e-7dd0-4b3c-9a3e-1a2b3c4d5e01",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ingest",
+        "responseMode": "onReceived",
+        "options": {}
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Clear Old Chunks",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [220, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DO $$ BEGIN\n  IF to_regclass('public.n8n_vectors') IS NOT NULL THEN\n    DELETE FROM n8n_vectors;\n  END IF;\nEND $$;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Read chunks.json",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [440, 0],
+      "parameters": {
+        "fileSelector": "/data/chunks.json",
+        "options": {}
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Parse JSON",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [660, 0],
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "To Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0],
+      "parameters": {
+        "jsCode": "// Normalize the parsed JSON into one n8n item per chunk,\n// regardless of how Extract From File shaped its output.\nlet chunks;\nif (items.length > 1) {\n  chunks = items.map((i) => i.json);\n} else {\n  const j = items[0].json;\n  chunks = Array.isArray(j) ? j : (j.data ?? [j]);\n}\nreturn chunks.map((c) => ({ json: c }));"
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Insert into PGVector",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1,
+      "position": [1100, 0],
+      "parameters": {
+        "mode": "insert",
+        "tableName": "n8n_vectors",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000008",
+      "name": "Chunk Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [1180, 220],
+      "parameters": {
+        "dataType": "json",
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.text }}",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              { "name": "doc_id", "value": "={{ $json.doc_id }}" },
+              { "name": "chunk_id", "value": "={{ $json.chunk_id }}" },
+              { "name": "title", "value": "={{ $json.title }}" },
+              { "name": "section", "value": "={{ $json.section }}" },
+              { "name": "url", "value": "={{ $json.url }}" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000009",
+      "name": "No-op Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [1260, 420],
+      "parameters": {
+        "chunkSize": 100000,
+        "chunkOverlap": 0,
+        "options": {}
+      }
+    },
+    {
+      "id": "a1000000-0000-4000-8000-000000000010",
+      "name": "Chunk Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [980, 220],
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openaidocsassist",
+          "name": "OpenAI Docs Assistant"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every Week": {
+      "main": [[{ "node": "Clear Old Chunks", "type": "main", "index": 0 }]]
+    },
+    "Ingest Hook": {
+      "main": [[{ "node": "Clear Old Chunks", "type": "main", "index": 0 }]]
+    },
+    "Clear Old Chunks": {
+      "main": [[{ "node": "Read chunks.json", "type": "main", "index": 0 }]]
+    },
+    "Read chunks.json": {
+      "main": [[{ "node": "Parse JSON", "type": "main", "index": 0 }]]
+    },
+    "Parse JSON": {
+      "main": [[{ "node": "To Items", "type": "main", "index": 0 }]]
+    },
+    "To Items": {
+      "main": [[{ "node": "Insert into PGVector", "type": "main", "index": 0 }]]
+    },
+    "Chunk Loader": {
+      "ai_document": [[{ "node": "Insert into PGVector", "type": "ai_document", "index": 0 }]]
+    },
+    "No-op Splitter": {
+      "ai_textSplitter": [[{ "node": "Chunk Loader", "type": "ai_textSplitter", "index": 0 }]]
+    },
+    "Chunk Embeddings": {
+      "ai_embedding": [[{ "node": "Insert into PGVector", "type": "ai_embedding", "index": 0 }]]
+    }
+  }
+}

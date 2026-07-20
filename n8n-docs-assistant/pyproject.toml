@@ -1,0 +1,18 @@
+[project]
+name = "n8n-docs-assistant"
+version = "1.0.0"
+description = "RAG assistant for the n8n documentation - LLM Zoomcamp capstone"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyter>=1.1.1",
+    "minsearch>=0.1.0",
+    "numpy>=2.0",
+    "openai>=2.0",
+    "pandas>=2.2",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+    "requests>=2.32",
+    "tqdm>=4.66",
+]

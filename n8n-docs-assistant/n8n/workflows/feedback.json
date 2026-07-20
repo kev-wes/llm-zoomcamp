@@ -1,0 +1,77 @@
+{
+  "id": "Feedback00000001",
+  "name": "3 - Collect Feedback",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "c3000000-0000-4000-8000-000000000001",
+      "name": "Feedback In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "0b6f8f5e-7dd0-4b3c-9a3e-1a2b3c4d5e03",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "feedback",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c3000000-0000-4000-8000-000000000002",
+      "name": "Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "parameters": {
+        "jsCode": "const body = $json.body ?? {};\nif (!body.conversation_id) {\n  throw new Error(\"'conversation_id' is required\");\n}\nconst feedback = Number(body.feedback);\nif (feedback !== 1 && feedback !== -1) {\n  throw new Error(\"'feedback' must be 1 (thumbs up) or -1 (thumbs down)\");\n}\nreturn [{\n  json: {\n    conversation_id: String(body.conversation_id),\n    feedback,\n  },\n}];"
+      }
+    },
+    {
+      "id": "c3000000-0000-4000-8000-000000000003",
+      "name": "Save Feedback",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [440, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO feedback (conversation_id, feedback) VALUES ($1, $2)",
+        "options": {
+          "queryReplacement": "={{ $json.conversation_id }},{{ $json.feedback }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    },
+    {
+      "id": "c3000000-0000-4000-8000-000000000004",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"status\": \"ok\"}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Feedback In": {
+      "main": [[{ "node": "Validate", "type": "main", "index": 0 }]]
+    },
+    "Validate": {
+      "main": [[{ "node": "Save Feedback", "type": "main", "index": 0 }]]
+    },
+    "Save Feedback": {
+      "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]]
+    }
+  }
+}

@@ -1,0 +1,246 @@
+{
+  "id": "RagAgentApi00001",
+  "name": "2 - RAG Agent API",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Chat In",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "0b6f8f5e-7dd0-4b3c-9a3e-1a2b3c4d5e02",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Prepare Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "parameters": {
+        "jsCode": "const body = $json.body ?? {};\nconst question = (body.question ?? '').toString().trim();\nif (!question) {\n  throw new Error(\"Request body must contain a 'question' field\");\n}\nreturn [{\n  json: {\n    id: $execution.id,\n    question,\n    started_at: Date.now(),\n  },\n}];"
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [440, 0],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.question }}",
+        "options": {
+          "systemMessage": "You are the n8n platform support assistant for our company. Employees ask you how to build and run workflows in n8n.\n\nALWAYS use the n8n_docs_search tool to look up the official documentation before answering. You may call it multiple times with different search queries if the first results are not sufficient.\n\nBase your answer ONLY on the retrieved documentation. If the documentation does not contain the answer, say that you don't know and recommend asking in the #platform-support channel. Never invent nodes, parameters, or features.\n\nKeep answers practical and concise. When it helps, give step-by-step instructions.\n\nAt the end of your answer, add a 'Sources:' line listing the url metadata values of the documentation chunks you used."
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [340, 220],
+      "parameters": {
+        "model": "gpt-5.4-mini",
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openaidocsassist",
+          "name": "OpenAI Docs Assistant"
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Docs Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStorePGVector",
+      "typeVersion": 1,
+      "position": [560, 220],
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "n8n_docs_search",
+        "toolDescription": "Searches the official n8n documentation. Use it for every question about building workflows, nodes, expressions, data handling, flow logic, or AI features in n8n. Input should be a search query.",
+        "tableName": "n8n_vectors",
+        "topK": 5,
+        "includeDocumentMetadata": true,
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Query Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [640, 420],
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openaidocsassist",
+          "name": "OpenAI Docs Assistant"
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "Build Record",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [760, 0],
+      "parameters": {
+        "jsCode": "// The Agent node does not expose exact token usage, so we estimate it\n// with the common ~4 characters/token heuristic. The evaluation notebooks\n// use exact usage from the OpenAI API instead (see README, Monitoring).\nconst MODEL = 'gpt-5.4-mini';\nconst PRICE_PER_1M = { input: 0.15, output: 0.6 }; // USD - adjust to your model\n\nconst prep = $('Prepare Input').first().json;\nconst out = $input.first().json;\nconst answer = (out.output ?? out.text ?? '').toString();\n\n// system message + ~5 retrieved chunks of ~900 chars\nconst SYSTEM_AND_CONTEXT_CHARS = 1200 + 5 * 900;\nconst promptTokens = Math.ceil((prep.question.length + SYSTEM_AND_CONTEXT_CHARS) / 4);\nconst completionTokens = Math.ceil(answer.length / 4);\nconst cost =\n  (promptTokens * PRICE_PER_1M.input + completionTokens * PRICE_PER_1M.output) / 1e6;\n\nreturn [{\n  json: {\n    id: prep.id,\n    question: prep.question,\n    answer,\n    model: MODEL,\n    latency_ms: Date.now() - prep.started_at,\n    prompt_tokens: promptTokens,\n    completion_tokens: completionTokens,\n    total_tokens: promptTokens + completionTokens,\n    cost_usd: Number(cost.toFixed(6)),\n  },\n}];"
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000008",
+      "name": "Log Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [980, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations\n  (id, question, answer, model, latency_ms, prompt_tokens, completion_tokens, total_tokens, cost_usd)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        "options": {
+          "queryReplacement": "={{ $json.id }},{{ $json.question }},{{ $json.answer }},{{ $json.model }},{{ $json.latency_ms }},{{ $json.prompt_tokens }},{{ $json.completion_tokens }},{{ $json.total_tokens }},{{ $json.cost_usd }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000009",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1200, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { conversation_id: $('Build Record').item.json.id, answer: $('Build Record').item.json.answer } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000010",
+      "name": "Judge Answer",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [1420, 0],
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert evaluator for a RAG system that answers questions about the n8n documentation.\n\nClassify how relevant the generated answer is to the question:\n- \"RELEVANT\": the answer directly and completely addresses the question\n- \"PARTLY_RELEVANT\": the answer addresses the question only partially or vaguely\n- \"NON_RELEVANT\": the answer does not address the question, or only says \"I don't know\"\n\nQuestion: {{ $('Build Record').item.json.question }}\n\nAnswer: {{ $('Build Record').item.json.answer }}\n\nReply with ONLY this JSON, without markdown fences:\n{\"verdict\": \"RELEVANT|PARTLY_RELEVANT|NON_RELEVANT\", \"explanation\": \"one short sentence\"}"
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000011",
+      "name": "Judge Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [1420, 220],
+      "parameters": {
+        "model": "gpt-5.4-mini",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "openaidocsassist",
+          "name": "OpenAI Docs Assistant"
+        }
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000012",
+      "name": "Parse Verdict",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1640, 0],
+      "parameters": {
+        "jsCode": "const raw = ($input.first().json.text ?? '').toString();\nconst cleaned = raw.replace(/```(json)?/g, '').trim();\n\nlet verdict = 'UNKNOWN';\nlet explanation = cleaned.slice(0, 500);\ntry {\n  const parsed = JSON.parse(cleaned);\n  verdict = (parsed.verdict ?? 'UNKNOWN').toString();\n  explanation = (parsed.explanation ?? '').toString();\n} catch (e) {\n  const m = cleaned.match(/PARTLY_RELEVANT|NON_RELEVANT|RELEVANT/);\n  if (m) verdict = m[0];\n}\n\nreturn [{\n  json: {\n    id: $('Build Record').first().json.id,\n    relevance: verdict,\n    relevance_explanation: explanation,\n  },\n}];"
+      }
+    },
+    {
+      "id": "b2000000-0000-4000-8000-000000000013",
+      "name": "Save Verdict",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1860, 0],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations\nSET relevance = $2, relevance_explanation = $3\nWHERE id = $1",
+        "options": {
+          "queryReplacement": "={{ $json.id }},{{ $json.relevance }},{{ $json.relevance_explanation }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "pgdocsassistant1",
+          "name": "Docs Assistant Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chat In": {
+      "main": [[{ "node": "Prepare Input", "type": "main", "index": 0 }]]
+    },
+    "Prepare Input": {
+      "main": [[{ "node": "AI Agent", "type": "main", "index": 0 }]]
+    },
+    "AI Agent": {
+      "main": [[{ "node": "Build Record", "type": "main", "index": 0 }]]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [[{ "node": "AI Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Docs Vector Store": {
+      "ai_tool": [[{ "node": "AI Agent", "type": "ai_tool", "index": 0 }]]
+    },
+    "Query Embeddings": {
+      "ai_embedding": [[{ "node": "Docs Vector Store", "type": "ai_embedding", "index": 0 }]]
+    },
+    "Build Record": {
+      "main": [[{ "node": "Log Conversation", "type": "main", "index": 0 }]]
+    },
+    "Log Conversation": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    },
+    "Respond": {
+      "main": [[{ "node": "Judge Answer", "type": "main", "index": 0 }]]
+    },
+    "Judge Answer": {
+      "main": [[{ "node": "Parse Verdict", "type": "main", "index": 0 }]]
+    },
+    "Judge Model": {
+      "ai_languageModel": [[{ "node": "Judge Answer", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Parse Verdict": {
+      "main": [[{ "node": "Save Verdict", "type": "main", "index": 0 }]]
+    }
+  }
+}
